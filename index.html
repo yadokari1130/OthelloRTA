@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head prefix="og: https://ogp.me/ns#">
+    <meta charset="UTF-8">
+    <title>Othello</title>
+    <link href="https://cdn.jsdelivr.net/npm/@mdi/font@6.x/css/materialdesignicons.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/vuetify@2.7.0/dist/vuetify.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900" rel="stylesheet">
+    <meta content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, minimal-ui" name="viewport">
+</head>
+<body>
+<div id="app">
+    <v-app>
+        <v-main>
+            <v-container fluid>
+                <h1 class="ma-6 ml-8 mt-0 pa-0 col-12">Othello</h1>
+                <v-row align-content="center" justify="center">
+                    <v-col class="col-3">
+                        <div class="text-h5 col-12 ma-0 pa-0 pl-8 pb-4">ログ</div>
+                        <div class="history">
+                            <div v-for="(h, index) in getHistory()" :key="`history_${index}`" class="ml-8">
+                                <p class="ma-0 pa-0">{{getCurrentMoves() - index}}手目 ターン：プレイヤー{{h[0] + 1}}</p>
+                                <table class="history-board mb-6" v-if="h" @click="confirmRollback(index)">
+                                    <tr v-for="i in 8" :key="i">
+                                        <td
+                                                v-for="j in 8"
+                                                class="history-cell"
+                                                :id="`history-cell${index}-${i-1}-${j-1}`"
+                                                :key="'history' + i + ' ' + j"
+                                                v-html="getHistoryCell(h[1][i-1][j-1])"
+                                        ></td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                    </v-col>
+                    <v-col class="col-8">
+                        <v-row align-content="center" justify="center" class="mb-4">
+                            <v-row align-content="center" justify="center">
+                                <table class="board" v-if="board">
+                                    <tr v-for="i in 8" :key="i">
+                                        <td
+                                                v-for="j in 8"
+                                                class="cell"
+                                                :id="`cell${i-1}${j-1}`"
+                                                :key="i + ' ' + j"
+                                                @click="put(i-1, j-1)"
+                                                v-html="getCell(i-1, j-1)"
+                                        ></td>
+                                    </tr>
+                                </table>
+                            </v-row>
+                            <v-row align-content="center" justify="space-around" class="col-8 mb-8">
+                                <v-btn class="col-11" @click="() => {if (this.isGaming) {this.isGaming = false; this.initBoard(); this.history = []} else this.start()}">{{isGaming ? "やり直す" : "対戦開始！"}}</v-btn>
+                            </v-row>
+                            <v-row align-content="center" justify="space-around" class="col-8">
+                                <v-select
+                                        class="col-3"
+                                        label="ユーザー1"
+                                        :items="opponent"
+                                        v-model="player[0]"
+                                        hide-details
+                                        outlined
+                                        :disabled="isGaming">
+                                </v-select>
+                                <v-col class="col-3" align-self="center">
+                                    <div class="text-h5 text-center">{{getCountText()}}</div>
+                                </v-col>
+                                <v-select
+                                        class="col-3"
+                                        label="ユーザー2"
+                                        :items="opponent"
+                                        v-model="player[1]"
+                                        hide-details
+                                        outlined
+                                        :disabled="isGaming">
+                                </v-select>
+                            </v-row>
+                            <v-row align-content="center" justify="space-around" class="col-8">
+                                <v-col class="col-3">
+                                    <div class="text-h5 text-end">ターン：</div>
+                                </v-col>
+                                <v-col class="col-3">
+                                    <div class="text-h5 text-center">プレイヤー{{turn+1}}</div>
+                                </v-col>
+                                <v-col class="col-3"></v-col>
+                            </v-row>
+                            <v-row align-content="center" justify="space-around" class="col-8">
+                                <v-col class="col-3">
+                                    <div class="text-h5 text-end">勝利数：</div>
+                                </v-col>
+                                <v-col class="col-3">
+                                    <div class="text-h5 text-center">{{winBlack}} - {{winWhite}}</div>
+                                </v-col>
+                                <v-col class="col-3"></v-col>
+                            </v-row>
+                        </v-row>
+
+                        <v-dialog
+                                transition="dialog-top-transition"
+                                persistent
+                                max-width="600"
+                                v-model="dialog"
+                        >
+                            <template v-slot:default="dialog_">
+                                <v-card>
+                                    <v-card-text>
+                                        <div class="text-h4 pa-12 col-12 text-center">{{resultText}}</div>
+                                    </v-card-text>
+                                    <v-card-actions>
+                                        <v-spacer></v-spacer>
+                                        <v-btn class="col-4" @click="retry">
+                                            再戦する
+                                        </v-btn>
+                                        <v-spacer></v-spacer>
+                                        <v-btn class="col-4" @click="dialog = false">
+                                            閉じる
+                                        </v-btn>
+                                        <v-spacer></v-spacer>
+                                    </v-card-actions>
+                                </v-card>
+                            </template>
+                        </v-dialog>
+
+                        <v-dialog
+                                persistent
+                                max-width="600"
+                                v-model="confirmRollbackDialog"
+                        >
+                            <template v-slot:default="dialog_">
+                                <v-card>
+                                    <v-card-text>
+                                        <div class="text-h4 pa-12 col-12 text-center">{{getCurrentMoves() - rollbackIndex}}手目に戻しますか？</div>
+                                    </v-card-text>
+                                    <v-card-actions>
+                                        <v-spacer></v-spacer>
+                                        <v-btn class="col-4" color="error" @click="rollback" text>
+                                            戻す
+                                        </v-btn>
+                                        <v-spacer></v-spacer>
+                                        <v-btn class="col-4" @click="() => {confirmRollbackDialog = false; restart()}" text>
+                                            閉じる
+                                        </v-btn>
+                                        <v-spacer></v-spacer>
+                                    </v-card-actions>
+                                </v-card>
+                            </template>
+                        </v-dialog>
+
+                        <v-snackbar
+                                v-model="passMessage"
+                                :timeout="1000"
+                        >
+                            {{(turn + 1) % 2 + 1}}のターンをパス
+
+                            <template v-slot:action="{ attrs }">
+                                <v-btn
+                                        color="blue"
+                                        text
+                                        v-bind="attrs"
+                                        @click="passMessage = false"
+                                >
+                                    閉じる
+                                </v-btn>
+                            </template>
+                        </v-snackbar>
+
+                        <v-col style="display: none">{{dummy}}</v-col>
+                    </v-col>
+                    <v-spacer style="height: 0"></v-spacer>
+                </v-row>
+            </v-container>
+        </v-main>
+    </v-app>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vue@2.7.14"></script>
+<script src="https://cdn.jsdelivr.net/npm/vuetify@2.7.0"></script>
+<script type="module">
+    new Vue({
+        el: "#app",
+        vuetify: new Vuetify(),
+        data() {
+            return {
+                opponent: [
+                    {
+                        value: 0,
+                        text: "プレイヤー"
+                    },
+                    {
+                        value: 1,
+                        text: "CPU"
+                    }
+                ],
+                player: [0, 0],
+                board: null,
+                turn: 0,
+                winBlack: 0,
+                winWhite: 0,
+                passed: false,
+                dialog: false,
+                dummy: 0,
+                canControl: true,
+                passMessage: false,
+                history: [],
+                isGaming: false,
+                changeDelay: 200,
+                cpuDelay: 500,
+                rest: 60,
+                resultText: "",
+                confirmRollbackDialog: false,
+                rollbackIndex: 0,
+            }
+        },
+        methods: {
+            getCell(i, j) {
+                if (this.board[i][j] === 0) return "<img src='img/black.png' class='stone'>";
+                if (this.board[i][j] === 1) return "<img src='img/white.png' class='stone'>";
+
+                if (this.getHoldableVectors(i, j).length > 0 && this.canControl && this.isGaming) {
+                    if (this.turn === 0) return "<img src='img/black.png' class='candidate'>";
+                    if (this.turn === 1) return "<img src='img/white.png' class='candidate'>";
+                }
+
+                return "";
+            },
+            getHistoryCell(c) {
+                if (c === 0) return "<img src='img/black.png' class='stone'>";
+                if (c === 1) return "<img src='img/white.png' class='stone'>";
+                return "";
+            },
+            async changeStone(i, j, c) {
+                this.board[i][j] = c;
+                this.dummy++;
+                const se = new Audio("se/reverse.mp3");
+                se.volume = 0.3;
+                await se.play();
+            },
+            async updateBoard(i, j) {
+                let oldBoard = JSON.parse(JSON.stringify(this.board));
+                this.history.push([this.turn, oldBoard]);
+
+                this.rest--;
+                let vectors = this.getHoldableVectors(i, j);
+                if (vectors.length === 0) return;
+
+                let c = (this.turn + 1) % 2;
+                await this.changeStone(i, j, this.turn);
+                for (let v of vectors) {
+                    for (let k = 1; k <= v[2]; k++) {
+                        let x = i + v[0] * k;
+                        let y = j + v[1] * k;
+
+                        await this.sleep(this.changeDelay);
+                        await this.changeStone(x, y, this.turn);
+                    }
+                }
+                this.turn = (this.turn + 1) % 2;
+
+                let f = true;
+                for (let k = 0; k < 8; k++) {
+                    for (let l = 0; l < 8; l++) {
+                        if (this.board[k][l] !== -1) continue;
+                        if (this.getHoldableVectors(k, l).length > 0) {
+                            f = false;
+                            break
+                        }
+                    }
+                }
+
+                if (this.rest === 0) {
+                    await this.gameSet();
+                    return;
+                }
+
+                if (f) {
+                    this.turn = (this.turn + 1) % 2;
+                    if (this.passed) {
+                        await this.gameSet();
+                        return;
+                    }
+                    else {
+                        this.passed = true;
+                        this.passMessage = true;
+                    }
+                }
+                else this.passed = false;
+            },
+            async put(i, j) {
+                if (!this.isGaming) return;
+                if (this.board[i][j] !== -1) return;
+                if (!this.canControl) return;
+                this.canControl = false;
+                await this.put_(i, j);
+                this.canControl = true;
+            },
+            async put_(i, j) {
+                if (!this.isGaming) return;
+                await this.updateBoard(i, j);
+                if (this.player[this.turn] === 1) {
+                    let location = this.getCpuLocation(this.turn);
+                    if (location[0] !== -1) {
+                        await this.sleep(this.cpuDelay);
+                        await this.put_(location[0], location[1]);
+                    }
+                }
+            },
+            getCountText() {
+                let count = this.count();
+                return count[0] + " - " + count[1];
+            },
+            count() {
+                let black = 0;
+                let white = 0;
+                for (let i = 0; i < 8; i++) {
+                    for (let j = 0; j < 8; j++) {
+                        if (this.board[i][j] === 0) black++;
+                        if (this.board[i][j] === 1) white++;
+                    }
+                }
+
+                return [black, white];
+            },
+            canPlace(i, j, v) {
+                let count = 0;
+                let f = false;
+                let c = (this.turn + 1) % 2;
+
+                for (let k = 1; k < 8; k++) {
+                    let x = i + v[0] * k;
+                    let y = j + v[1] * k;
+
+                    if (x < 0 || x >= 8 || y < 0 || y >= 8) break;
+
+                    if (this.board[x][y] === c) count++;
+                    else if (this.board[x][y] === this.turn) {
+                        f = true;
+                        break;
+                    }
+                    else break;
+                }
+
+
+                return f ? count : -1;
+            },
+            getHoldableVectors(i, j) {
+                let result = [];
+                for (let k = -1; k <= 1; k++) {
+                    for (let l = -1; l <= 1; l++) {
+                        if (k === 0 && l === 0) continue;
+                        let c = this.canPlace(i, j, [k, l]);
+                        if (c > 0) result.push([k, l, c])
+                    }
+                }
+
+                return result;
+            },
+            initBoard() {
+                this.board = []
+                for (let i = 0; i < 8; i++) {
+                    this.board.push([])
+                    for (let j = 0; j < 8; j++) {
+                        this.board[i].push(-1)
+                    }
+                }
+
+                this.board[3][3] = 0;
+                this.board[4][4] = 0;
+                this.board[3][4] = 1;
+                this.board[4][3] = 1;
+
+                // this.board[0][0] = 1;
+                // this.board[0][1] = 0;
+                // this.board[0][2] = 1;
+                // this.board[0][4] = 0;
+                // this.board[0][6] = 0;
+
+                this.turn = 0;
+                this.passed = false;
+                this.dummy = 0;
+            },
+            getResultText() {
+                let count = this.count();
+                if (count[0] === count[1]) return "引き分け！"
+                return "プレイヤー" + (count[0] > count[1] ? "1" : "2") + "の勝利！"
+            },
+            async retry() {
+                this.dialog = false;
+                await this.start();
+            },
+            async gameSet() {
+                this.dialog = true;
+                let count = this.count();
+                if (count[0] > count[1]) this.winBlack++;
+                else if (count[0] < count[1]) this.winWhite++;
+                this.resultText = this.getResultText();
+                this.isGaming = false;
+            },
+            async start() {
+                this.initBoard();
+                this.isGaming = true;
+                this.canControl = true;
+                this.rest = 60;
+                this.history = []
+
+                if (this.player[this.turn] === 1) {
+                    this.canControl = false;
+                    let location = this.getCpuLocation(this.turn);
+                    if (location[0] !== -1) {
+                        await this.sleep(this.cpuDelay);
+                        await this.put_(location[0], location[1]);
+                    }
+                }
+            },
+            async restart() {
+                this.isGaming = true;
+                this.canControl = true;
+
+                if (this.player[this.turn] === 1) {
+                    this.canControl = false;
+                    let location = this.getCpuLocation(this.turn);
+                    if (location[0] !== -1) {
+                        await this.sleep(this.cpuDelay);
+                        await this.put_(location[0], location[1]);
+                    }
+                }
+            },
+            sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            },
+            getCpuLocation(c) {
+                let x = -1;
+                let y = -1;
+                let max = 0;
+                for (let i = 0; i < 8; i++) {
+                    for (let j = 0; j < 8; j++) {
+                        if (this.board[i][j] !== -1) continue;
+                        let count = 0;
+                        for (let v of this.getHoldableVectors(i, j)) {
+                            count += v[2];
+                        }
+
+                        if (max < count) {
+                            x = i;
+                            y = j;
+                            max = count;
+                        }
+                    }
+                }
+
+                return [x, y];
+            },
+            getHistory() {
+                return this.history.slice().reverse();
+            },
+            getCurrentMoves() {
+                return this.history.length;
+            },
+            confirmRollback(index) {
+                this.rollbackIndex = index;
+                this.confirmRollbackDialog = true;
+                this.isGaming = false;
+            },
+            rollback() {
+                this.confirmRollbackDialog = false;
+                this.rest += this.rollbackIndex + 1;
+                for (let i = 0; i < this.rollbackIndex; i++) {
+                    this.history.pop();
+                }
+                let h = this.history.pop();
+                this.board = JSON.parse(JSON.stringify(h[1]));
+                this.turn = h[0];
+                this.restart();
+            }
+        },
+        beforeCreate() {
+        },
+        created() {
+            this.initBoard();
+        },
+        beforeDestroy() {
+        },
+        computed: {
+        }
+    })
+</script>
+</body>
+
+<style scoped>
+    .cell {
+        height: 64px;
+        width: 64px;
+        border: solid 1px black;
+        border-collapse: collapse;
+    }
+    .board {
+        border: solid 3px black;
+        border-collapse: collapse;
+        background-color: darkgreen;
+    }
+    .history-cell {
+        height: 32px;
+        width: 32px;
+        border: solid 1px black;
+        border-collapse: collapse;
+    }
+    .history-board {
+        border: solid 3px black;
+        border-collapse: collapse;
+        background-color: darkgreen;
+    }
+    .stone {
+        height: 100%;
+        width: 100%;
+        float: left;
+    }
+    .candidate {
+        height: 100%;
+        width: 100%;
+        float: left;
+        opacity: 0.3;
+    }
+    .history {
+        height: 84vh;
+        max-height: 84vh;
+        overflow-y: scroll;
+    }
+</style>
+</html>
